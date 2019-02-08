@@ -247,7 +247,6 @@ enum shell_state {
 	SHELL_STATE_UNINITIALIZED,
 	SHELL_STATE_INITIALIZED,
 	SHELL_STATE_ACTIVE,
-	SHELL_STATE_COMMAND,
 	SHELL_STATE_PANIC_MODE_ACTIVE,  /*!< Panic activated.*/
 	SHELL_STATE_PANIC_MODE_INACTIVE /*!< Panic requested, not supported.*/
 };
@@ -293,16 +292,19 @@ struct shell_transport_api {
 	int (*uninit)(const struct shell_transport *transport);
 
 	/**
-	 * @brief Function for reconfiguring the transport to work in blocking
-	 * mode.
+	 * @brief Function for enabling transport in given TX mode.
 	 *
-	 * @param transport  Pointer to the transfer instance.
-	 * @param blocking   If true, the transport is enabled in blocking mode.
+	 * Function can be used to reconfigure TX to work in blocking mode.
+	 *
+	 * @param transport   Pointer to the transfer instance.
+	 * @param blocking_tx If true, the transport TX is enabled in blocking
+	 *		      mode.
 	 *
 	 * @return NRF_SUCCESS on successful enabling, error otherwise (also if
 	 * not supported).
 	 */
-	int (*enable)(const struct shell_transport *transport, bool blocking);
+	int (*enable)(const struct shell_transport *transport,
+		      bool blocking_tx);
 
 	/**
 	 * @brief Function for writing data to the transport interface.
@@ -391,8 +393,7 @@ enum shell_signal {
 	SHELL_SIGNAL_RXRDY,
 	SHELL_SIGNAL_LOG_MSG,
 	SHELL_SIGNAL_KILL,
-	SHELL_SIGNAL_COMMAND_EXIT,
-	SHELL_SIGNAL_TXDONE,
+	SHELL_SIGNAL_TXDONE, /* TXDONE must be last one before SHELL_SIGNALS */
 	SHELL_SIGNALS
 };
 
@@ -558,45 +559,43 @@ int shell_start(const struct shell *shell);
 int shell_stop(const struct shell *shell);
 
 /**
- * @brief Terminal default text color for nrf_shell_fprintf function.
+ * @brief Terminal default text color for shell_fprintf function.
  */
 #define SHELL_NORMAL	SHELL_VT100_COLOR_DEFAULT
 
 /**
- * @brief Green text color for nrf_shell_fprintf function.
+ * @brief Green text color for shell_fprintf function.
  */
 #define SHELL_INFO	SHELL_VT100_COLOR_GREEN
 
 /**
- * @brief Cyan text color for nrf_shell_fprintf function.
+ * @brief Cyan text color for shell_fprintf function.
  */
 #define SHELL_OPTION	SHELL_VT100_COLOR_CYAN
 
 /**
- * @brief Yellow text color for nrf_shell_fprintf function.
+ * @brief Yellow text color for shell_fprintf function.
  */
 #define SHELL_WARNING	SHELL_VT100_COLOR_YELLOW
 
 /**
- * @brief Red text color for nrf_shell_fprintf function.
+ * @brief Red text color for shell_fprintf function.
  */
 #define SHELL_ERROR	SHELL_VT100_COLOR_RED
 
 /**
  * @brief printf-like function which sends formatted data stream to the shell.
  *
- * This function shall not be used outside of the shell command context unless
- * command requested to stay in the foreground (see @ref shell_command_enter).
- * In that case, function can be called from any thread context until command is
- * terminated with CTRL+C or @ref shell_command_exit call.
+ * This function can be used from the command handler or from threads, but not
+ * from an interrupt context.
  *
  * @param[in] shell	Pointer to the shell instance.
  * @param[in] color	Printed text color.
- * @param[in] p_fmt	Format string.
+ * @param[in] fmt	Format string.
  * @param[in] ...	List of parameters to print.
  */
 void shell_fprintf(const struct shell *shell, enum shell_vt100_color color,
-		   const char *p_fmt, ...);
+		   const char *fmt, ...);
 
 /**
  * @brief Print info message to the shell.
@@ -653,24 +652,6 @@ void shell_fprintf(const struct shell *shell, enum shell_vt100_color color,
  * @param[in] shell Pointer to the shell instance.
  */
 void shell_process(const struct shell *shell);
-
-/**
- * @brief Indicate to shell that command stay in foreground, blocking the shell.
- *
- * Command in foreground is terminated by @ref shell_command_exit or CTRL+C.
- *
- * @param[in] shell	Pointer to the shell instance.
- */
-void shell_command_enter(const struct shell *shell);
-
-/**
- * @brief Exit command in foreground state.
- *
- * See @ref shell_command_enter.
- *
- * @param[in] shell	Pointer to the shell instance.
- */
-void shell_command_exit(const struct shell *shell);
 
 /**
  * @brief Change displayed shell prompt.

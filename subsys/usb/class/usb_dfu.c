@@ -58,9 +58,16 @@ LOG_MODULE_REGISTER(usb_dfu);
 #define NUMOF_ALTERNATE_SETTINGS	2
 
 #ifdef CONFIG_USB_COMPOSITE_DEVICE
-#define USB_DFU_MAX_XFER_SIZE		CONFIG_USB_COMPOSITE_BUFFER_SIZE
+#define USB_DFU_MAX_XFER_SIZE		(min(CONFIG_USB_COMPOSITE_BUFFER_SIZE, \
+					     CONFIG_USB_DFU_MAX_XFER_SIZE))
 #else
 #define USB_DFU_MAX_XFER_SIZE		CONFIG_USB_DFU_MAX_XFER_SIZE
+#endif
+
+#ifndef FLASH_BASE_ADDRESS
+#define FLASH_BASE_ADDRESS 0
+#else
+#define FLASH_BASE_ADDRESS CONFIG_FLASH_BASE_ADDRESS
 #endif
 
 static struct k_work dfu_work;
@@ -78,7 +85,7 @@ struct usb_dfu_config {
 	struct dfu_runtime_descriptor dfu_descr;
 } __packed;
 
-USBD_CLASS_DESCR_DEFINE(primary) struct usb_dfu_config dfu_cfg = {
+USBD_CLASS_DESCR_DEFINE(primary, 0) struct usb_dfu_config dfu_cfg = {
 	/* Interface descriptor */
 	.if0 = {
 		.bLength = sizeof(struct usb_if_descriptor),
@@ -100,7 +107,7 @@ USBD_CLASS_DESCR_DEFINE(primary) struct usb_dfu_config dfu_cfg = {
 		.wDetachTimeOut =
 			sys_cpu_to_le16(CONFIG_USB_DFU_DETACH_TIMEOUT),
 		.wTransferSize =
-			sys_cpu_to_le16(CONFIG_USB_DFU_MAX_XFER_SIZE),
+			sys_cpu_to_le16(USB_DFU_MAX_XFER_SIZE),
 		.bcdDFUVersion =
 			sys_cpu_to_le16(DFU_VERSION),
 	},
@@ -284,11 +291,7 @@ struct dfu_data_t {
 	/* Number of bytes sent during upload */
 	u32_t bytes_sent;
 	u32_t alt_setting;              /* DFU alternate setting */
-#ifdef CONFIG_USB_COMPOSITE_DEVICE
-	u8_t *buffer;
-#else
 	u8_t buffer[USB_DFU_MAX_XFER_SIZE]; /* DFU data buffer */
-#endif
 	struct flash_img_context ctx;
 	enum dfu_state state;              /* State of the DFU device */
 	enum dfu_status status;            /* Status of the DFU device */
@@ -298,7 +301,7 @@ struct dfu_data_t {
 static struct dfu_data_t dfu_data = {
 	.state = appIDLE,
 	.status = statusOK,
-	.flash_addr = CONFIG_FLASH_BASE_ADDRESS + FLASH_AREA_IMAGE_1_OFFSET,
+	.flash_addr = FLASH_BASE_ADDRESS + FLASH_AREA_IMAGE_1_OFFSET,
 	.flash_upload_size = FLASH_AREA_IMAGE_1_SIZE,
 	.alt_setting = 0,
 };
@@ -432,7 +435,7 @@ static int dfu_class_handle_req(struct usb_setup_packet *pSetup,
 		case dfuIDLE:
 			LOG_DBG("DFU_DNLOAD start");
 			dfu_reset_counters();
-			if (dfu_data.flash_addr != CONFIG_FLASH_BASE_ADDRESS
+			if (dfu_data.flash_addr != FLASH_BASE_ADDRESS
 						+ FLASH_AREA_IMAGE_1_OFFSET) {
 				dfu_data.status = errWRITE;
 				dfu_data.state = dfuERROR;
@@ -499,9 +502,10 @@ static int dfu_class_handle_req(struct usb_setup_packet *pSetup,
 
 			if (len) {
 				ret = flash_read(dfu_data.flash_dev,
-						 dfu_data.flash_addr +
+						 dfu_data.flash_addr -
+						 FLASH_BASE_ADDRESS +
 						 dfu_data.bytes_sent,
-						 dfu_data.buffer, len);
+						 *data, len);
 				if (ret) {
 					dfu_data.state = dfuERROR;
 					dfu_data.status = errFILE;
@@ -509,7 +513,6 @@ static int dfu_class_handle_req(struct usb_setup_packet *pSetup,
 				}
 			}
 			*data_len = len;
-			*data = dfu_data.buffer;
 
 			dfu_data.bytes_sent += len;
 			dfu_data.block_nr++;
@@ -636,14 +639,14 @@ static int dfu_custom_handle_req(struct usb_setup_packet *pSetup,
 			switch (pSetup->wValue) {
 			case 0:
 				dfu_data.flash_addr =
-					CONFIG_FLASH_BASE_ADDRESS +
+					FLASH_BASE_ADDRESS +
 					FLASH_AREA_IMAGE_0_OFFSET;
 				dfu_data.flash_upload_size =
 					FLASH_AREA_IMAGE_0_SIZE;
 				break;
 			case 1:
 				dfu_data.flash_addr =
-					CONFIG_FLASH_BASE_ADDRESS +
+					FLASH_BASE_ADDRESS +
 					FLASH_AREA_IMAGE_1_OFFSET;
 				dfu_data.flash_upload_size =
 					FLASH_AREA_IMAGE_1_SIZE;
@@ -676,7 +679,7 @@ USBD_CFG_DATA_DEFINE(dfu) struct usb_cfg_data dfu_config = {
 	.interface = {
 		.class_handler = dfu_class_handle_req,
 		.custom_handler = dfu_custom_handle_req,
-		.payload_data = NULL,
+		.payload_data = dfu_data.buffer,
 	},
 	.num_endpoints = 0,
 };
@@ -693,7 +696,7 @@ USBD_CFG_DATA_DEFINE(dfu_mode) struct usb_cfg_data dfu_mode_config = {
 	.interface = {
 		.class_handler = dfu_class_handle_req,
 		.custom_handler = dfu_custom_handle_req,
-		.payload_data = NULL,
+		.payload_data = dfu_data.buffer,
 	},
 	.num_endpoints = 0,
 };
@@ -738,7 +741,6 @@ static int usb_dfu_init(struct device *dev)
 	k_work_init(&dfu_work, dfu_work_handler);
 
 #ifndef CONFIG_USB_COMPOSITE_DEVICE
-	dfu_config.interface.payload_data = dfu_data.buffer;
 	dfu_config.usb_device_description = usb_get_device_descriptor();
 
 	/* Initialize the USB driver with the right configuration */

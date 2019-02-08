@@ -11,8 +11,8 @@ void shell_op_cursor_vert_move(const struct shell *shell, s32_t delta)
 {
 	if (delta != 0) {
 		shell_raw_fprintf(shell->fprintf_ctx, "\033[%d%c",
-				delta > 0 ? delta : -delta,
-				delta > 0 ? 'A' : 'B');
+				  delta > 0 ? delta : -delta,
+				  delta > 0 ? 'A' : 'B');
 	}
 }
 
@@ -20,8 +20,8 @@ void shell_op_cursor_horiz_move(const struct shell *shell, s32_t delta)
 {
 	if (delta != 0) {
 		shell_raw_fprintf(shell->fprintf_ctx, "\033[%d%c",
-				delta > 0 ? delta : -delta,
-				delta > 0 ? 'C' : 'D');
+				  delta > 0 ? delta : -delta,
+				  delta > 0 ? 'C' : 'D');
 	}
 }
 
@@ -224,7 +224,7 @@ static void reprint_from_cursor(const struct shell *shell, u16_t diff,
 	}
 
 	shell_fprintf(shell, SHELL_NORMAL, "%s",
-			&shell->ctx->cmd_buff[shell->ctx->cmd_buff_pos]);
+		      &shell->ctx->cmd_buff[shell->ctx->cmd_buff_pos]);
 	shell->ctx->cmd_buff_pos = shell->ctx->cmd_buff_len;
 
 	if (full_line_cmd(shell)) {
@@ -258,9 +258,14 @@ static void data_insert(const struct shell *shell, const char *data, u16_t len)
 	reprint_from_cursor(shell, after, false);
 }
 
-void char_replace(const struct shell *shell, char data)
+static void char_replace(const struct shell *shell, char data)
 {
 	shell->ctx->cmd_buff[shell->ctx->cmd_buff_pos++] = data;
+
+	if (!flag_echo_get(shell)) {
+		return;
+	}
+
 	shell_raw_fprintf(shell->fprintf_ctx, "%c", data);
 	if (shell_cursor_in_empty_line(shell)) {
 		cursor_next_line_move(shell);
@@ -322,10 +327,45 @@ void shell_cmd_line_erase(const struct shell *shell)
 	shell_multiline_data_calc(&shell->ctx->vt100_ctx.cons,
 				  shell->ctx->cmd_buff_pos,
 				  shell->ctx->cmd_buff_len);
-	shell_op_cursor_horiz_move(shell, -shell->ctx->vt100_ctx.cons.cur_x);
+	shell_op_cursor_horiz_move(shell,
+				   -(shell->ctx->vt100_ctx.cons.cur_x - 1));
 	shell_op_cursor_vert_move(shell, shell->ctx->vt100_ctx.cons.cur_y - 1);
 
 	clear_eos(shell);
+}
+
+static void print_prompt(const struct shell *shell)
+{
+	/* Below cannot be printed by shell_fprinf because it will cause
+	 * interrupt spin
+	 */
+	if (IS_ENABLED(CONFIG_SHELL_VT100_COLORS) &&
+	    shell->ctx->internal.flags.use_colors &&
+	    (SHELL_INFO != shell->ctx->vt100_ctx.col.col)) {
+		struct shell_vt100_colors col;
+
+		shell_vt100_colors_store(shell, &col);
+		shell_vt100_color_set(shell, SHELL_INFO);
+		shell_raw_fprintf(shell->fprintf_ctx, "%s", shell->prompt);
+		shell_vt100_colors_restore(shell, &col);
+	} else {
+		shell_raw_fprintf(shell->fprintf_ctx, "%s", shell->prompt);
+	}
+}
+
+void shell_print_cmd(const struct shell *shell)
+{
+	shell_raw_fprintf(shell->fprintf_ctx, "%s", shell->ctx->cmd_buff);
+}
+
+void shell_print_prompt_and_cmd(const struct shell *shell)
+{
+	print_prompt(shell);
+
+	if (flag_echo_get(shell)) {
+		shell_print_cmd(shell);
+		shell_op_cursor_position_synchronize(shell);
+	}
 }
 
 static void shell_pend_on_txdone(const struct shell *shell)
