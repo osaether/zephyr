@@ -140,7 +140,7 @@ static void nvmc_wait_ready(void)
 }
 
 enum nvmc_config {
-#ifdef CONFIG_SOC_NRF9160
+#if (defined(CONFIG_SOC_NRF9160) && defined(CONFIG_ARM_NONSECURE_FIRMWARE))
 	REN = NVMC_CONFIGNS_WEN_Ren << NVMC_CONFIGNS_WEN_Pos,
 	WEN = NVMC_CONFIGNS_WEN_Wen << NVMC_CONFIGNS_WEN_Pos,
 	EEN = NVMC_CONFIGNS_WEN_Een << NVMC_CONFIGNS_WEN_Pos,
@@ -153,7 +153,8 @@ enum nvmc_config {
 
 static u32_t nvmc_config_set(enum nvmc_config mode)
 {
-#ifdef CONFIG_SOC_NRF9160
+#if (defined(CONFIG_SOC_NRF9160) && defined(CONFIG_ARM_NONSECURE_FIRMWARE))
+//#ifdef CONFIG_SOC_NRF9160
 	const u32_t cfg = NRF_NVMC->CONFIGNS;
 	NRF_NVMC->CONFIGNS = mode;
 #else
