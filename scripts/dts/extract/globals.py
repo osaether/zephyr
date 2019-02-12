@@ -22,16 +22,16 @@ old_alias_names = False
 
 regs_config = {
     'zephyr,sram'  : 'DT_SRAM',
-    'zephyr,ccm'   : 'CONFIG_CCM'
+    'zephyr,ccm'   : 'DT_CCM'
 }
 
 name_config = {
-    'zephyr,console'     : 'CONFIG_UART_CONSOLE_ON_DEV_NAME',
-    'zephyr,shell-uart'  : 'CONFIG_UART_SHELL_ON_DEV_NAME',
-    'zephyr,bt-uart'     : 'CONFIG_BT_UART_ON_DEV_NAME',
-    'zephyr,uart-pipe'   : 'CONFIG_UART_PIPE_ON_DEV_NAME',
-    'zephyr,bt-mon-uart' : 'CONFIG_BT_MONITOR_ON_DEV_NAME',
-    'zephyr,uart-mcumgr' : 'CONFIG_UART_MCUMGR_ON_DEV_NAME'
+    'zephyr,console'     : 'DT_UART_CONSOLE_ON_DEV_NAME',
+    'zephyr,shell-uart'  : 'DT_UART_SHELL_ON_DEV_NAME',
+    'zephyr,bt-uart'     : 'DT_BT_UART_ON_DEV_NAME',
+    'zephyr,uart-pipe'   : 'DT_UART_PIPE_ON_DEV_NAME',
+    'zephyr,bt-mon-uart' : 'DT_BT_MONITOR_ON_DEV_NAME',
+    'zephyr,uart-mcumgr' : 'DT_UART_MCUMGR_ON_DEV_NAME'
 }
 
 
@@ -44,23 +44,29 @@ def str_to_label(s):
             .upper()
 
 
-def get_all_compatibles(d, name, comp_dict):
-    if d['props'].get('status') == 'disabled':
-        return comp_dict
+def all_compats(node):
+    # Returns a set() of all 'compatible' strings that appear at or below
+    # 'node', skipping disabled nodes
 
-    if 'compatible' in d['props']:
-        comp_dict[name] = d['props']['compatible']
+    if node['props'].get('status') == 'disabled':
+        return set()
 
-    if name != '/':
-        name += '/'
+    compats = set()
 
-    for k, v in d['children'].items():
-        get_all_compatibles(v, name + k, comp_dict)
+    if 'compatible' in node['props']:
+        val = node['props']['compatible']
+        if isinstance(val, list):
+            compats.update(val)
+        else:
+            compats.add(val)
 
-    return comp_dict
+    for child_node in node['children'].values():
+        compats.update(all_compats(child_node))
+
+    return compats
 
 
-def get_aliases(root):
+def create_aliases(root):
     if 'children' in root:
         if 'aliases' in root['children']:
             for k, v in root['children']['aliases']['props'].items():
@@ -105,14 +111,14 @@ def get_compat(node_address):
     return compat
 
 
-def get_chosen(root):
+def create_chosen(root):
     if 'children' in root:
         if 'chosen' in root['children']:
             for k, v in root['children']['chosen']['props'].items():
                 chosen[k] = v
 
 
-def get_phandles(root, name, handles):
+def create_phandles(root, name):
     if root['props'].get('status') == 'disabled':
         return
 
@@ -122,8 +128,8 @@ def get_phandles(root, name, handles):
     if name != '/':
         name += '/'
 
-    for k, v in root['children'].items():
-        get_phandles(v, name + k, handles)
+    for child_name, child_node in root['children'].items():
+        create_phandles(child_node, name + child_name)
 
 
 def insert_defs(node_address, new_defs, new_aliases):
@@ -157,10 +163,10 @@ def find_node_by_path(nodes, path):
     return d
 
 
-def get_reduced(nodes, path):
+def create_reduced(nodes, path):
     # compress nodes list to nodes w/ paths, add interrupt parent
-    if 'last_used_id' not in get_reduced.__dict__:
-        get_reduced.last_used_id = {}
+    if 'last_used_id' not in create_reduced.__dict__:
+        create_reduced.last_used_id = {}
 
     if 'props' in nodes:
         status = nodes['props'].get('status')
@@ -177,11 +183,11 @@ def get_reduced(nodes, path):
             if type(compat) is not list: compat = [ compat, ]
             reduced[path]['instance_id'] = {}
             for k in compat:
-                if k not in get_reduced.last_used_id:
-                    get_reduced.last_used_id[k] = 0
+                if k not in create_reduced.last_used_id:
+                    create_reduced.last_used_id[k] = 0
                 else:
-                    get_reduced.last_used_id[k] += 1
-                reduced[path]['instance_id'][k] = get_reduced.last_used_id[k]
+                    create_reduced.last_used_id[k] += 1
+                reduced[path]['instance_id'][k] = create_reduced.last_used_id[k]
 
         # Newer versions of dtc might have the properties that look like
         # reg = <1 2>, <3 4>;
@@ -197,7 +203,7 @@ def get_reduced(nodes, path):
             path += '/'
         if nodes['children']:
             for k, v in sorted(nodes['children'].items()):
-                get_reduced(v, path + k)
+                create_reduced(v, path + k)
 
 
 def get_node_label(node_address):

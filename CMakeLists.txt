@@ -269,12 +269,6 @@ endif()
 # 'cmake -DEXTRA_CFLAGS="-Werror -Wno-deprecated-declarations" ..'
 include(cmake/extra_flags.cmake)
 
-if(CONFIG_READABLE_ASM)
-  zephyr_cc_option(-fno-reorder-blocks)
-  zephyr_cc_option(-fno-ipa-cp-clone)
-  zephyr_cc_option(-fno-partial-inlining)
-endif()
-
 zephyr_cc_option(-fno-asynchronous-unwind-tables)
 zephyr_cc_option(-fno-pie)
 zephyr_cc_option(-fno-pic)
@@ -426,6 +420,7 @@ endif()
 configure_file(version.h.in ${PROJECT_BINARY_DIR}/include/generated/version.h)
 
 function(construct_add_custom_command_for_linker_pass linker_output_name output_variable)
+  set(extra_dependencies ${ARGN})
   set(linker_cmd_file_name ${linker_output_name}.cmd)
 
   if (${linker_output_name} MATCHES "^linker_pass_final$")
@@ -456,7 +451,10 @@ function(construct_add_custom_command_for_linker_pass linker_output_name output_
 
   set(${output_variable}
     OUTPUT ${linker_cmd_file_name}
-    DEPENDS ${LINKER_SCRIPT}
+    DEPENDS
+    ${LINKER_SCRIPT}
+    ${extra_dependencies}
+    # NB: 'linker_script_dep' will use a keyword that ends 'DEPENDS'
     ${linker_script_dep}
     COMMAND ${CMAKE_C_COMPILER}
     -x assembler-with-cpp
@@ -479,16 +477,16 @@ endfunction()
 # Error-out when the deprecated naming convention is found (until
 # after 1.14.0 has been released)
 foreach(path
-	${BOARD_DIR}/dts.fixup
-	${PROJECT_SOURCE_DIR}/soc/${ARCH}/${SOC_PATH}/dts.fixup
+    ${BOARD_DIR}/dts.fixup
+    ${PROJECT_SOURCE_DIR}/soc/${ARCH}/${SOC_PATH}/dts.fixup
     ${APPLICATION_SOURCE_DIR}/dts.fixup
-	)
+    )
   if(EXISTS ${path})
-	message(FATAL_ERROR
-	  "A deprecated filename has been detected. Porting is required."
-	  "The file '${path}' exists, but it should be named dts_fixup.h instead."
-	  "See https://github.com/zephyrproject-rtos/zephyr/pull/10352 for more details"
-	  )
+    message(FATAL_ERROR
+      "A deprecated filename has been detected. Porting is required."
+      "The file '${path}' exists, but it should be named dts_fixup.h instead."
+      "See https://github.com/zephyrproject-rtos/zephyr/pull/10352 for more details"
+      )
   endif()
 endforeach()
 
@@ -502,14 +500,14 @@ set_ifndef(DTS_CAT_OF_FIXUP_FILES ${ZEPHYR_BINARY_DIR}/include/generated/generat
 # #include'ing
 file(WRITE ${DTS_CAT_OF_FIXUP_FILES} "/* May only be included by generated_dts_board.h */\n\n")
 foreach(fixup_file
-      ${DTS_BOARD_FIXUP_FILE}
-      ${DTS_SOC_FIXUP_FILE}
-      ${DTS_APP_FIXUP_FILE}
-      ${shield_dts_fixups}
-	)
+    ${DTS_BOARD_FIXUP_FILE}
+    ${DTS_SOC_FIXUP_FILE}
+    ${DTS_APP_FIXUP_FILE}
+    ${shield_dts_fixups}
+    )
   if(EXISTS ${fixup_file})
-	file(READ ${fixup_file} contents)
-	file(APPEND ${DTS_CAT_OF_FIXUP_FILES} "${contents}")
+    file(READ ${fixup_file} contents)
+    file(APPEND ${DTS_CAT_OF_FIXUP_FILES} "${contents}")
   endif()
 endforeach()
 
@@ -547,6 +545,15 @@ add_subdirectory(ext)
 add_subdirectory(subsys)
 add_subdirectory(drivers)
 add_subdirectory(tests)
+
+# Add all zephyr modules subdirectories.
+message("Including module(s): ${ZEPHYR_MODULES_NAME}")
+set(index 0)
+foreach(module_name ${ZEPHYR_MODULES_NAME})
+  list(GET ZEPHYR_MODULES_DIR ${index} module_dir)
+  math(EXPR index "${index} + 1")
+  add_subdirectory(${module_dir} ${CMAKE_BINARY_DIR}/${module_name})
+endforeach()
 
 set(syscall_macros_h ${ZEPHYR_BINARY_DIR}/include/generated/syscall_macros.h)
 
@@ -746,7 +753,15 @@ if (CONFIG_CODE_DATA_RELOCATION)
   set(CODE_RELOCATION_DEP code_relocation_source_lib)
 endif() # CONFIG_CODE_DATA_RELOCATION
 
-construct_add_custom_command_for_linker_pass(linker custom_command)
+construct_add_custom_command_for_linker_pass(
+  linker
+  custom_command
+  ${ALIGN_SIZING_DEP}
+  ${PRIV_STACK_DEP}
+  ${APP_SMEM_DEP}
+  ${CODE_RELOCATION_DEP}
+  ${OFFSETS_H_TARGET}
+  )
 add_custom_command(
   ${custom_command}
 )
@@ -754,11 +769,7 @@ add_custom_command(
 add_custom_target(
   ${LINKER_SCRIPT_TARGET}
   DEPENDS
-  ${ALIGN_SIZING_DEP} ${PRIV_STACK_DEP}
-  ${APP_SMEM_DEP}
-  ${CODE_RELOCATION_DEP}
   linker.cmd
-  ${OFFSETS_H_TARGET}
   )
 
 # Give the '${LINKER_SCRIPT_TARGET}' target all of the include directories so
@@ -1125,29 +1136,40 @@ if(CONFIG_APP_SHARED_MEM AND CONFIG_USERSPACE)
   set(OBJ_FILE_DIR "${PROJECT_BINARY_DIR}/../")
 
   add_custom_target(
-    ${APP_SMEM_DEP} ALL
-    DEPENDS app
-    kernel ${ZEPHYR_LIBS_PROPERTY}
+    ${APP_SMEM_DEP}
+    DEPENDS
+    ${APP_SMEM_LD}
     )
 
   if(CONFIG_NEWLIB_LIBC)
     set(NEWLIB_PART -l libc.a z_newlib_partition)
   endif()
   add_custom_command(
-    TARGET ${APP_SMEM_DEP}
+    OUTPUT ${APP_SMEM_LD}
     COMMAND ${PYTHON_EXECUTABLE}
     ${ZEPHYR_BASE}/scripts/gen_app_partitions.py
     -d ${OBJ_FILE_DIR}
     -o ${APP_SMEM_LD}
     ${NEWLIB_PART}
     $<$<BOOL:${CMAKE_VERBOSE_MAKEFILE}>:--verbose>
+    DEPENDS
+    kernel
+    ${ZEPHYR_LIBS_PROPERTY}
     WORKING_DIRECTORY ${PROJECT_BINARY_DIR}/
     COMMENT "Generating app_smem linker section"
     )
 endif()
 
 if(CONFIG_USERSPACE AND CONFIG_ARM)
-  construct_add_custom_command_for_linker_pass(linker_priv_stacks custom_command)
+  construct_add_custom_command_for_linker_pass(
+    linker_priv_stacks
+    custom_command
+    ${ALIGN_SIZING_DEP}
+    ${CODE_RELOCATION_DEP}
+    ${APP_SMEM_DEP}
+    ${APP_SMEM_LD}
+    ${OFFSETS_H_TARGET}
+    )
   add_custom_command(
     ${custom_command}
     )
@@ -1155,10 +1177,7 @@ if(CONFIG_USERSPACE AND CONFIG_ARM)
   add_custom_target(
     linker_priv_stacks_script
     DEPENDS
-    ${ALIGN_SIZING_DEP} ${APP_SMEM_DEP}
-    ${CODE_RELOCATION_DEP}
     linker_priv_stacks.cmd
-    ${OFFSETS_H_TARGET}
     )
 
   set_property(TARGET
@@ -1188,7 +1207,15 @@ if(GKOF OR GKSF)
   # The second linker pass uses the same source linker script of the
   # first pass (LINKER_SCRIPT), but this time with a different output
   # file and preprocessed with the define LINKER_PASS2.
-  construct_add_custom_command_for_linker_pass(linker_pass_final custom_command)
+  construct_add_custom_command_for_linker_pass(
+    linker_pass_final
+    custom_command
+    ${ALIGN_SIZING_DEP}
+    ${PRIV_STACK_DEP}
+    ${CODE_RELOCATION_DEP}
+    ${ZEPHYR_PREBUILT_EXECUTABLE}
+    ${OFFSETS_H_TARGET}
+    )
   add_custom_command(
     ${custom_command}
     )
@@ -1197,11 +1224,7 @@ if(GKOF OR GKSF)
   add_custom_target(
     ${LINKER_PASS_FINAL_SCRIPT_TARGET}
     DEPENDS
-    ${ALIGN_SIZING_DEP} ${PRIV_STACK_DEP}
-    ${CODE_RELOCATION_DEP}
-    ${ZEPHYR_PREBUILT_EXECUTABLE}
     linker_pass_final.cmd
-    ${OFFSETS_H_TARGET}
     )
   set_property(TARGET
     ${LINKER_PASS_FINAL_SCRIPT_TARGET}

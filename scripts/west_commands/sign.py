@@ -170,9 +170,9 @@ class ImgtoolSigner(Signer):
             subprocess.check_call(sign_hex)
 
     def sign_cmd(self, args, bcfg, infile, outfile):
-        align = str(bcfg['FLASH_WRITE_BLOCK_SIZE'])
+        align = str(bcfg['DT_FLASH_WRITE_BLOCK_SIZE'])
         vtoff = str(bcfg['CONFIG_TEXT_SECTION_OFFSET'])
-        slot_size = str(bcfg['FLASH_AREA_IMAGE_0_SIZE'])
+        slot_size = str(bcfg['DT_FLASH_AREA_IMAGE_0_SIZE'])
 
         sign_command = [args.tool_path or 'imgtool',
                         'sign',

@@ -1728,6 +1728,7 @@ static inline u32_t k_uptime_delta_32(s64_t *reftime)
 
 struct k_queue {
 	sys_sflist_t data_q;
+	struct k_spinlock lock;
 	union {
 		_wait_q_t wait_q;
 
@@ -2369,6 +2370,7 @@ struct k_lifo {
 
 struct k_stack {
 	_wait_q_t wait_q;
+	struct k_spinlock lock;
 	u32_t *base, *next, *top;
 
 	_OBJECT_TRACING_NEXT_PTR(k_stack)
@@ -2526,6 +2528,7 @@ typedef void (*k_work_handler_t)(struct k_work *work);
 struct k_work_q {
 	struct k_queue queue;
 	struct k_thread thread;
+	struct k_spinlock lock;
 };
 
 enum {
@@ -3145,6 +3148,7 @@ static inline unsigned int _impl_k_sem_count_get(struct k_sem *sem)
  */
 struct k_msgq {
 	_wait_q_t wait_q;
+	struct k_spinlock lock;
 	size_t msg_size;
 	u32_t max_msgs;
 	char *buffer_start;
@@ -3447,6 +3451,7 @@ struct k_mbox_msg {
 struct k_mbox {
 	_wait_q_t tx_msg_queue;
 	_wait_q_t rx_msg_queue;
+	struct k_spinlock lock;
 
 	_OBJECT_TRACING_NEXT_PTR(k_mbox)
 };
@@ -3626,6 +3631,7 @@ struct k_pipe {
 	size_t         bytes_used;      /**< # bytes used in buffer */
 	size_t         read_index;      /**< Where in buffer to read from */
 	size_t         write_index;     /**< Where in buffer to write */
+	struct k_spinlock lock;		/**< Synchronization lock */
 
 	struct {
 		_wait_q_t      readers; /**< Reader wait queue */

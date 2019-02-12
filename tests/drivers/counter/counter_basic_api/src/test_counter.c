@@ -51,10 +51,10 @@ const char *devices[] = {
 	CONFIG_COUNTER_RTC2_NAME,
 #endif
 #ifdef CONFIG_COUNTER_IMX_EPIT_1
-	EPIT_1_LABEL,
+	DT_COUNTER_IMX_EPIT_1_LABEL,
 #endif
 #ifdef CONFIG_COUNTER_IMX_EPIT_2
-	EPIT_2_LABEL,
+	DT_COUNTER_IMX_EPIT_2_LABEL,
 #endif
 #ifdef DT_RTC_MCUX_0_NAME
 	DT_RTC_MCUX_0_NAME,
@@ -70,6 +70,10 @@ const char *devices[] = {
 #endif
 #ifdef DT_RTC_0_NAME
 	DT_RTC_0_NAME,
+#endif
+
+#ifdef CONFIG_COUNTER_0_NAME
+	CONFIG_COUNTER_0_NAME,
 #endif
 };
 typedef void (*counter_test_func_t)(const char *dev_name);
